@@ -3,6 +3,10 @@
 
 class LowPassFilter;
 
+constexpr float _PI     = 3.14159265359f;
+constexpr float _1_6_PI = 5.026548245743f;
+constexpr float _2PI    = 6.28318530718f;
+
 class AngleSensor
 {
   public:

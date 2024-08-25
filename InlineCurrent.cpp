@@ -1,21 +1,16 @@
 #include <Arduino.h>
+
 #include "InlineCurrent.h"
 #include "lowpass_filter.h"
 
-//  - shunt_resistor  - 分流电阻值
-//  - gain  - 电流检测运算放大器增益
-//  - phA   - A 相 adc 引脚
-//  - phB   - B 相 adc 引脚
-//  - phC   - C 相 adc 引脚（可选）
-
-#define _ADC_VOLTAGE 3.3f            //ADC 电压
-#define _ADC_RESOLUTION 4095.0f      //ADC 分辨率
-#define _shunt_resistor  0.01f
-#define _amp_gain  50
-#define volts_to_amps_ratio  (1.0f /_shunt_resistor / _amp_gain) // volts to amps
+#define ADC_VOLTAGE         3.3f         // ADC 电压
+#define ADC_RESOLUTION      4095.0f      // ADC width
+#define SHUNT_RESISTOR      0.01f        // 分流电阻值
+#define AMP_GAIN            50           // 电流检测运算放大器增益
+#define VOLT_TO_AMP_RATIO   (1.0f / SHUNT_RESISTOR / AMP_GAIN)
 
 // ADC 计数到电压转换比率求解
-#define _ADC_CONV ( (_ADC_VOLTAGE) / (_ADC_RESOLUTION) )
+#define _ADC_CONV ( (ADC_VOLTAGE) / (ADC_RESOLUTION) )
 
 CurrSense::CurrSense(int id)
 {
@@ -25,9 +20,9 @@ CurrSense::CurrSense(int id)
     pinB = GPIO_ADC[1 + id * 2];
 
     // gains for each phase
-    gain_a = volts_to_amps_ratio;
-    gain_b = volts_to_amps_ratio;
-    // gain_c = volts_to_amps_ratio * -1;
+    gain_a = VOLT_TO_AMP_RATIO;
+    gain_b = VOLT_TO_AMP_RATIO;
+    // gain_c = VOLT_TO_AMP_RATIO * -1;
 
     phase_a = new LowPassFilter(0.005);
     phase_b = new LowPassFilter(0.005);
@@ -51,18 +46,16 @@ void CurrSense::calibrateOffsets()
 {
     const int calibration_rounds = 1000;
 
-    // 查找0电流时候的电压
     offset_ia = 0;
     offset_ib = 0;
     // offset_ic = 0;
-    // 读数1000次
     for (int i = 0; i < calibration_rounds; i++) {
         offset_ia += readADCVoltageInline(pinA);
         offset_ib += readADCVoltageInline(pinB);
         // if(_isset(pinC)) offset_ic += readADCVoltageInline(pinC);
         delay(1);
     }
-    // 求平均，得到误差
+
     offset_ia = offset_ia / calibration_rounds;
     offset_ib = offset_ib / calibration_rounds;
     // if(_isset(pinC)) offset_ic = offset_ic / calibration_rounds;
@@ -70,13 +63,11 @@ void CurrSense::calibrateOffsets()
 
 void CurrSense::init()
 {
-    // 配置函数
     configureADCInline(pinA,pinB);
-    // 校准
+
     calibrateOffsets();
 }
 
-// 读取全部三相电流
 void CurrSense::getPhaseCurrents()
 {
     current_a = (readADCVoltageInline(pinA) - offset_ia)*gain_a;// amps

@@ -10,25 +10,10 @@
 #include "AS5600.h"
 #include "foc.h"
 
-// static foc* _foc[MOTOR_NUMB];
-
-//==============串口接收==============
-static float motor_target[MOTOR_NUMB] = {0};
-static int pid_mode[MOTOR_NUMB];// = {FOC_PID_MODE_POSITION, FOC_PID_MODE_POSITION};
-static int motor_id = MOTOR_ID_0;
-
-// static bldc *motor[MOTOR_NUMB];
-// static CurrSense *current[MOTOR_NUMB];
-// static AngleSensor *angel[MOTOR_NUMB];
-
-struct motor_ctl_t {
-    bldc *motor;
-    CurrSense *current;
-    AngleSensor *angel;
-    foc *mfoc;
-    int pid_mode;
-    int pid_target;
-} motor_ctl[MOTOR_NUMB];
+static foc *foc_list[MOTOR_NUMB];
+static int motor_id;
+static int run_mode;
+static float motor_target = 0.0f;
 
 void serialReceiveUserCommand()
 {
@@ -37,7 +22,6 @@ void serialReceiveUserCommand()
 
     int commaPosition = 0;
     String command = "";
-
     float val = 0;
 
     while (Serial.available()) {
@@ -46,15 +30,12 @@ void serialReceiveUserCommand()
         received_chars += inChar;
         // end of user input
         if (inChar == '\n') {
-
             commaPosition = received_chars.indexOf('='); // cmd = value
             int size = received_chars.indexOf('\n') - 1;
-            // printf("commaPosition= %d, size=%d\n", commaPosition, size);
+
             if(commaPosition != -1) {
                 command = received_chars.substring(0, commaPosition);
                 val = received_chars.substring(commaPosition + 1, size).toDouble();
-
-                foc *_foc = motor_ctl[motor_id].mfoc;
 
                 printf("%s = %f\n", command.c_str(), val);
 
@@ -62,25 +43,28 @@ void serialReceiveUserCommand()
                     motor_id = val;
                 }
                 else if (command == "mode") {
-                    motor_ctl[motor_id].pid_mode = val;
-                }
-                else if (command == "pid") {
-                    _foc->setDebug(motor_ctl[motor_id].pid_mode, FOC_PID_STATE, val);
+                    run_mode = val;
+                    motor_target = 0;
+                    foc_list[MOTOR_ID_0]->setMode(run_mode);
+                    foc_list[MOTOR_ID_1]->setMode(run_mode);
                 }
                 else if (command == "target") {
-                    motor_target[motor_id] = val;
+                    motor_target = val;
                 }
                 else if (command == "p") {
-                    _foc->setDebug(motor_ctl[motor_id].pid_mode, FOC_PID_KP, val);
+
+                    foc_list[motor_id]->setDebug(run_mode, FOC_PID_KP, val);
                 }
                 else if (command == "i") {
-                    _foc->setDebug(motor_ctl[motor_id].pid_mode, FOC_PID_KI, val);
+
+                    foc_list[motor_id]->setDebug(run_mode, FOC_PID_KI, val);
                 }
                 else if (command == "d") {
-                    _foc->setDebug(motor_ctl[motor_id].pid_mode, FOC_PID_KD, val);
+
+                    foc_list[motor_id]->setDebug(run_mode, FOC_PID_KD, val);
                 }
                 else if (command == "if") {
-                    _foc->setDebug(motor_ctl[motor_id].pid_mode, FOC_PID_KI_FACTOR, val);
+                    foc_list[motor_id]->setDebug(run_mode, FOC_PID_KI_FACTOR, val);
                 }
             }
             // reset the command buffer
@@ -89,24 +73,17 @@ void serialReceiveUserCommand()
     }
 }
 
-
+// static AngleSensor * angle_list[2];
 static void create_motor_controller(int id)
 {
     bldc *_motor = new bldc(id, 12);
     CurrSense *_current = new CurrSense(id);
     AngleSensor *_angel = new AngleSensor(id, 1, 7);
-    foc *_foc = new foc(_motor, _current, _angel);
 
-    _foc->alignAngle();
-
-    motor_ctl[id].motor = _motor;
-    motor_ctl[id].current = _current;
-    motor_ctl[id].angel = _angel;
-    motor_ctl[id].mfoc = _foc;
-
-    pid_mode[id] = FOC_PID_MODE_POSITION;
+    foc_list[id] = new foc(_motor, _current, _angel);
+   
+    foc_list[id]->initAndCalibrateSensor();
 }
-
 
 void setup()
 {
@@ -115,9 +92,11 @@ void setup()
     digitalWrite(12, HIGH);  //V4电机使能
 
     create_motor_controller(MOTOR_ID_0);
-    // create_motor_controller(MOTOR_ID_1);
-}
+    create_motor_controller(MOTOR_ID_1);
 
+    run_mode = FOC_MODE_VEL;
+    motor_id = MOTOR_ID_1;
+}
 
 void loop()
 {
@@ -125,24 +104,36 @@ void loop()
     serialReceiveUserCommand();
 
     for (int i = 0; i < MOTOR_NUMB; i++) {
-        foc *_foc = motor_ctl[i].mfoc;
+        foc *_foc = foc_list[i];
         _foc->updateSensors();
 
-        switch (pid_mode[0]) {
-            case FOC_PID_MODE_ID:
-                _foc->setTargetCurrent(0, motor_target[i]);
+        // if (i == MOTOR_ID_0) continue;
+        switch (run_mode) {
+            // case FOC_PID_MODE_ID:
+            //     _foc->setTargetCurrent(0, motor_target[i]);
+            //     break;
+
+            case FOC_MODE_VEL:
+                _foc->setTargetVelocity(motor_target);
                 break;
-            case FOC_PID_MODE_VELOCITY:
-                _foc->setTargetVelocity(motor_target[0]);
+
+            case FOC_MODE_POS:
+                _foc->setTargetPosition(motor_target);
                 break;
-            case FOC_PID_MODE_POSITION:
-                _foc->setTargetPosition(motor_target[0]);
-                // float pos = angel[1]->getFullRadian();
-                // _foc[0]->setTargetPosition(pos);
+
+            case FOC_MODE_POS_FEED: {
+                float _pos0 = foc_list[MOTOR_ID_0]->getRadian();
+                float _pos1 = foc_list[MOTOR_ID_1]->getRadian();
+                foc_list[MOTOR_ID_0]->setTargetPosition((_pos1-_pos0)*1.5);
+                foc_list[MOTOR_ID_1]->setTargetPosition((_pos0-_pos1)*1.5);
+                break;
+            }
+            // default : break;
+            default :
+                printf("unsupport run mode : %d\n", run_mode);
                 break;
         }
     }
-
     // unsigned long timestamp_now = micros();
     // printf("the loop consume(us): %d\n", timestamp_now - timestamp_prev);
 

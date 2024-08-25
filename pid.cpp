@@ -1,4 +1,4 @@
-#include <stdlib.h>
+// #include <stdlib.h>
 #include <Arduino.h>
 
 #include "pid.h"
@@ -19,7 +19,15 @@ pid::pid(const char *name, float P, float I, float D,
     deviation_prev = 0;
     pid_out = 0;
 
-    printf("%s, P=%f, I=%f, D=%f, max=%f\n", name, P, I, D, max_in);
+    printf("%s, P=%f, I=%f, D=%f, max=[%.4f=>%.4f]\n", name, P, I, D, max_in, max_out);
+}
+
+void pid::setup(float P, float I, float D)
+{
+    kp = P;
+    ki = I;
+    kd = D;
+    deviation_sum = 0;
 }
 
 static int count = 0;
@@ -36,12 +44,6 @@ float pid::process(float target, float current)
 
         deviation = _target - current;
 
-        // if ((strcmp(id, "velocity") == 0) ||
-        //     (strcmp(id, "position") == 0)) {
-
-        // } else {
-        //     deviation_sum += ki * deviation;
-        // }
         if (fabs(deviation) <= in_max * ki_factor) {
             deviation_sum += ki * deviation;
             deviation_sum = _constrain(deviation_sum, -out_max, out_max);

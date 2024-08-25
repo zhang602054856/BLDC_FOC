@@ -14,22 +14,22 @@ class CurrSense;
 
 enum {
     MOTOR_ID_0,
-    // MOTOR_ID_1,
+    MOTOR_ID_1,
     MOTOR_NUMB,
 } MOTOR_ENUM;
 
 class bldc {
     public:
-        bldc(int id, float power/*, uint8_t poles*/);
-        int setup();
+        bldc(int id, int power/*, uint8_t poles*/);
+        int init();
+        // uint8_t getPolePairs() {return pole_pairs; }
+        int getMaxPower() {return supply_power; }
         void setPwm(float Ta, float Tb, float Tc);
-        uint8_t getPolePairs() {return pole_pairs; }
-        uint8_t getMaxPower() {return supply_power; }
 
     private:
         int id;
-        uint8_t pole_pairs;
-        float supply_power;
+        int pole_pairs;
+        int supply_power;
         int gpio_index[3];
 };
 
@@ -38,13 +38,17 @@ class foc {
         foc(bldc *m, CurrSense* cur, AngleSensor* ang);
         ~foc() = default;
 
-        void alignAngle();
+        void initAndCalibrateSensor();
         void setTorque(float Uq, float Ud, float elec_angle);
         void setTargetPosition(float target);
         void setTargetVelocity(float target);
         void setTargetCurrent(float target_iq, float target_id);
         void updateSensors();
+        void setMaxTorqueForPosition(float cur) { position_pid->setMaxOutput(cur); }
 
+        float getTorqueMaxCurrent() { return Iq_max; }
+        float getRadian() { return angle->getFullRadian(); }
+        void setMode(int mode);
         void setDebug(int mode, int id, float set);
 
     private:
@@ -55,6 +59,7 @@ class foc {
     private:
         uint8_t section; // identify stator section number
         float rpm; //1rpm = 9.5493 * 1 rad/s; 2000rpm = 209.44 rad/s
+        // float torque_max;
 
         bldc *motor;
         CurrSense *current;
@@ -69,16 +74,16 @@ class foc {
         pid* torque_q_pid;
 
         // caculate data
-            // float Ua;
-            // float Ub;
-            // float Uc;
+        // float Ua;
+        // float Ub;
+        // float Uc;
         float Udc; // supply voltage. for example: 12.6v ==> 126
 
         float U_alpha;
         float U_beta;
         float Ud; // expect as 0
         float Uq; // decide the torque
-        float Uq_max;
+        float Uq_max; // 6.9v => 69
 
         // measure data
         float Ia;
@@ -87,6 +92,7 @@ class foc {
         float I_beta;
         float Id;
         float Iq;
+        float Iq_max;
 
 };
 

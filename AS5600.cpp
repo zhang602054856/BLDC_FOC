@@ -4,17 +4,11 @@
 #include "AS5600.h"
 #include "lowpass_filter.h"
 
-
-#define _PI 3.14159265359f
-#define _2PI 6.28318530718f
-#define _1_6_PI 5.026548245743f
-
 #define AS5600_ADDR 0x36
 #define AS5600_ANGLE_REG 0x0C
 #define AS5600_I2C_CLK 400000UL
 
 static int count = 0;
-constexpr int I2C_PIN[] = {19, 18, 23, 5};
 
 AngleSensor::AngleSensor(uint8_t id, int dir, uint8_t poles)
     : id(id),
@@ -29,23 +23,31 @@ AngleSensor::AngleSensor(uint8_t id, int dir, uint8_t poles)
     velocity_rad = 0;
     initial_degree = 0;
     velocity = new LowPassFilter(0.05); //Tf = 50ms
-    position = new LowPassFilter(0.05); //Tf = 50ms
+    position = new LowPassFilter(0.01); //Tf = 10ms
 
     wire = new TwoWire(id);
 }
 
 void AngleSensor::init()
 {
-    wire->begin(I2C_PIN[0 + id * 2], I2C_PIN[1 + id * 2], AS5600_I2C_CLK);
+    constexpr int I2C_PIN[] = {
+        /*MOTOR0*/ 19, 18,
+        /*MOTOR1*/ 23, 5
+    };
+
+    int i2c_scl_pin = I2C_PIN[0 + id * 2];
+    int i2c_dat_pin = I2C_PIN[1 + id * 2];
+
+    wire->begin(i2c_scl_pin, i2c_dat_pin, AS5600_I2C_CLK);
     wire->beginTransmission(AS5600_ADDR);
     wire->write(AS5600_ANGLE_REG);
     wire->endTransmission(false);
 
-    float _raw = 0.0f;
-    for (int i = 0; i < 100; i++) {
+    uint32_t _raw = 0;
+    for (int i = 0; i < 128; i++) {
          _raw += getRawAngle();
     }
-    initial_degree = _raw *0.01;/// 100;
+    initial_degree = _raw >> 7;
 
     printf("as5600 initial degree = %d\n", initial_degree);
 }
@@ -127,9 +129,10 @@ void AngleSensor::sensorUpdate()
     uint16_t deg_aligned = (degree >= initial_degree) ?
                 (360 - degree + initial_degree) : (initial_degree - degree);
 
-    radian_cur = deg_aligned * 0.017453292519;//_PI / 180;
+    radian_cur = deg_aligned * _PI / 180;
 
     float delta_radian = radian_cur - radian_prev;
+
     if(fabs(delta_radian) > _1_6_PI ) {
         round += ( delta_radian > 0 ) ? -1 : 1;
     }

@@ -1,16 +1,16 @@
 #include <Arduino.h>
+
 #include "AS5600.h"
 #include "lowpass_filter.h"
 #include "pid.h"
 #include "foc.h"
 #include "InlineCurrent.h"
 
-static int count = 0;
-
-constexpr float _PI = 3.14159265359f;
-constexpr float _2PI = 6.28318530718f;
-constexpr float _PI_2 = 1.57079632679f;
-constexpr float _3PI_2 = 4.71238898038f;
+// constexpr float _PI     = 3.14159265359f;
+// constexpr float _1_6_PI = 5.026548245743f;
+// constexpr float _2PI    = 6.28318530718f;
+constexpr float _PI_2   = 1.57079632679f;
+constexpr float _3PI_2  = 4.71238898038f;
 
 constexpr float _SQRT3 = 1.73205080757f;
 constexpr float _1_SQRT3 = 0.57735026919f;  // 1/√3 = √3/3
@@ -18,22 +18,28 @@ constexpr float _2_SQRT3 = 1.15470053838f;  // 2√3/3
 
 constexpr float _RPM_FACTOR = 9.54929658551f;
 
-constexpr float max_current = 0.5f;
-constexpr float max_velocity = 100.0f;
+constexpr float MAX_TORQUE_CUR = 0.5f;
+constexpr float MAX_VELOCITY = 100.0f;
+constexpr float MAX_POSITION_VELOCITY = 50.0f;
+
+static int count = 0;
 
 //#define __unused __attribute__((unused))
 
-bldc::bldc(int id, float power/*, uint8_t poles*/)
+bldc::bldc(int id, int power/*, uint8_t poles*/)
     : id(id),
       pole_pairs(7),
       supply_power(power)
 {
-    printf("bldc id = %d, U_max = %f\n", id, power);
+    printf("bldc id = %d, U_max = %d\n", id, power);
 }
 
-int bldc::setup()
+int bldc::init()
 {
-    constexpr int GPIO_PWM_TABLE[] = {32, 33, 25, 26, 27, 14};
+    constexpr int GPIO_PWM_TABLE[] = {
+        /*MOTOR0*/ 32, 33, 25,
+        /*MOTOR1*/ 26, 27, 14
+    };
 
     if (id >= MOTOR_NUMB) {
         return -1;
@@ -47,11 +53,11 @@ int bldc::setup()
         ledcSetup(index, 30000, 11);  //pwm channel, freq, solution 2^11
         ledcAttachPin(gpio_pwm, index);
 
-        printf("gpio(%d) => pwm(%d)\n", index, gpio_pwm);
         gpio_index[i] = index;
+        printf("gpio(%d) => pwm(%d)\n", index, gpio_pwm);
     }
 
-    Serial.println("pwm gpio initialized");
+    Serial.println("pwm initialized");
     return 0;
  }
 
@@ -70,30 +76,31 @@ void bldc::setPwm(float Ta, float Tb, float Tc)
 }
 
 
-foc::foc(bldc *m, CurrSense* cur, AngleSensor* ang)
+foc::foc(bldc *mot, CurrSense* cur, AngleSensor* ang)
   : section(0),
     rpm(0),
-    motor(m),
+    Iq_max(MAX_TORQUE_CUR),
+    motor(mot),
     current(cur),
     angle(ang)
 {
     Uq = 0;
     Ud = 0;
-    Udc = m->getMaxPower();
-    Uq_max =  _1_SQRT3 * Udc;
+    Udc = mot->getMaxPower();
+    Uq_max = _1_SQRT3 * Udc;
 
     // kp=0.2, i=0.0001 , d=150
     // spring affect: p=0.01, i=0, d=0.9
-    // position_pid = new pid("position", 0.4, 0, 160, 1, 200, max_current);
-    position_pid = new pid("position", 4, 0, 0, 1, 200, 50);
+    // position_pid = new pid("position", 0.4, 0, 160, 1, 200, Iq_max);
+    position_pid = new pid("position", 9, 0, 0, 1, 1024, MAX_POSITION_VELOCITY);
 
     // velocity: p=0.2,i=0.0005,d=0.05,input Max=100rad/s
-    // speed_pid = new pid("velocity", 0.01, 0.0001, 0.1, 0.06, max_velocity, max_current);
-    speed_pid = new pid("velocity", 0.01, 0, 0, 1, max_velocity, max_current);
+    speed_pid = new pid("velocity", 0.02, 0.00001, 0.2, 0.08, MAX_VELOCITY, Iq_max);
+    // speed_pid = new pid("velocity", 0.01, 0, 0, 1, MAX_VELOCITY, Iq_max);
 
     // torque:inputMax=1A,outputMax=(√3/3)*Udc
-    torque_d_pid = new pid("torque_d", 3, 0.04, 0, 1, max_current, Uq_max);
-    torque_q_pid = new pid("torque_q", 3, 0.04, 0, 1, max_current, Uq_max);
+    torque_d_pid = new pid("torque_d", 3, 0.04, 0, 1, Iq_max, Uq_max);
+    torque_q_pid = new pid("torque_q", 3, 0.04, 0, 1, Iq_max, Uq_max);
 
     Id_fliter = new LowPassFilter(0.02);
     Iq_fliter = new LowPassFilter(0.02);
@@ -101,26 +108,42 @@ foc::foc(bldc *m, CurrSense* cur, AngleSensor* ang)
     printf("Uq_max = %f\n", Uq_max);
 }
 
-void foc::alignAngle()
+void foc::initAndCalibrateSensor()
 {
     float _elec_angle = 0;
 
-    motor->setup();
+    motor->init();
     current->init();
 
     setTorque(3, 0, _3PI_2);   //start
     delay(500);
-
     angle->init();
-
     setTorque(0, 0, 0);        //end
     // delay(500);
 }
+void foc::setMode(int mode)
+{
+    switch (mode) {
+        case FOC_MODE_VEL:
+            speed_pid->setup(0.02, 0.00001, 0.2);
+            break;
+        case FOC_MODE_POS:
+        case FOC_MODE_POS_FEED:
+            speed_pid->setup(0.01, 0, 0);
+            break;
+    }
+}
+
 
 void foc::updateSensors()
 {
     angle->sensorUpdate();
     current->getPhaseCurrents();
+    // if (count++ > 100 ) {
+    //     count = 0;
+
+    //     printf("vel: %f,%f \n", angle->getElectricAngle(), angle->getVelocity());
+    // }
 }
 
 void foc::setTorque(float target_uq, float target_ud, float elec_angle)
@@ -165,7 +188,7 @@ void foc::setTargetVelocity(float target)
 
     // if (count++ > 100 ) {
     //     count = 0;
-    //     printf("radain: %f, %f\n", _velocity, _ref_Iq);
+    //     printf("velocity: %f, %f\n", _velocity, _ref_Iq);
     // }
     setTargetCurrent(_ref_Iq, 0.0f);
 }
@@ -184,10 +207,9 @@ void foc::setTargetPosition(float target)
 
     // float _ref_Iq
     // setTargetCurrent(_ref_Iq, 0.0f);
-
     if (count++ > 100) {
         count = 0;
-        printf("position: %f, %f, %f\n", _cur_pos, _ref_vel, Uq);
+        printf("position: %f, %f\n", _cur_pos, _ref_vel);
     }
 }
 
@@ -195,19 +217,49 @@ void foc::setTargetPosition(float target)
 void foc::setDebug(int mode, int id, float set)
 {
     static pid* PID_CTL_TABLE[] = {
-        /*0*/ torque_d_pid,
+        // /*0*/ torque_d_pid,
         /*1*/ speed_pid,
         /*2*/ position_pid,
     };
 
-    if (mode < FOC_PID_MODE_MAX) {
+    if (mode < FOC_MODE_NUM) {
         PID_CTL_TABLE[mode]->setDebug(id, set);
     }
 }
 
 /**************************************************************
-*            basic foc algorithms implementation.             *
+*                    basic foc algorithms                     *
 **************************************************************/
+// /**
+//  * @brief       利用泰勒级数计算sin(x)的近似值
+//  * @param       x: 计算的弧度
+//  * @param       n: 泰勒级数的项数
+//  * @retval      sin函数数值
+//  */
+// static float my_sin(float x,int n)
+// {
+//     float term = x; // 第一项是 x
+//     float sin_x = 0.0; // sin(x)的累加结果
+
+//     for (int i = 1; i <= n; i++) {
+//         sin_x += term; // 累加当前项
+//         term *= -x * x / ((2 * i) * (2 * i + 1)); // 计算下一项
+//     }
+//     return sin_x;
+// }
+
+// /**
+//  * @brief       利用泰勒级数计算cos(x)的近似值
+//  * @param       x: 计算的弧度
+//  * @param       n: 泰勒级数的项数
+//  * @retval      cos函数数值
+//  */
+// static float my_cos(float x,int n)
+// {
+//     return my_sin(x+M_PI/2,n);//奇变偶不变，符号看象限
+// }
+// // cosf -> my_cos
+// // sinf -> my_sin
 
 void foc::clarkPark(float elec_angle)
 {
@@ -224,6 +276,10 @@ void foc::clarkPark(float elec_angle)
     // low pass filter
     Id = Id_fliter->process(Id);
     Iq = Iq_fliter->process(Iq);
+
+    // if (fabs(Iq) > Iq_max) {
+    //     Iq_max = fabs(Iq);
+    // }
 }
 
 // void foc::invClark()

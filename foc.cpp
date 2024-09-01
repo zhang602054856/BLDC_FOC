@@ -20,7 +20,8 @@ constexpr float _RPM_FACTOR = 9.54929658551f;
 
 constexpr float MAX_TORQUE_CUR = 0.5f;
 constexpr float MAX_VELOCITY = 100.0f;
-constexpr float MAX_POSITION_VELOCITY = 50.0f;
+constexpr float MAX_CUR_FOR_VELOCITY = 0.3f;
+constexpr float MAX_VEL_FOR_POS = 50.0f;
 
 static int count = 0;
 
@@ -92,11 +93,11 @@ foc::foc(bldc *mot, CurrSense* cur, AngleSensor* ang)
     // kp=0.2, i=0.0001 , d=150
     // spring affect: p=0.01, i=0, d=0.9
     // position_pid = new pid("position", 0.4, 0, 160, 1, 200, Iq_max);
-    position_pid = new pid("position", 9, 0, 0, 1, 1024, MAX_POSITION_VELOCITY);
+    position_pid = new pid("position", 9, 0, 0, 1, 1024, MAX_VEL_FOR_POS);
 
-    // velocity: p=0.2,i=0.0005,d=0.05,input Max=100rad/s
-    speed_pid = new pid("velocity", 0.02, 0.00001, 0.2, 0.08, MAX_VELOCITY, Iq_max);
-    // speed_pid = new pid("velocity", 0.01, 0, 0, 1, MAX_VELOCITY, Iq_max);
+    // velocity: input Max=100rad/s
+    speed_pid = new pid("velocity", 0.05, 0.0001, 0.1, 0.02,
+                        MAX_VELOCITY, MAX_CUR_FOR_VELOCITY);
 
     // torque:inputMax=1A,outputMax=(√3/3)*Udc
     torque_d_pid = new pid("torque_d", 3, 0.04, 0, 1, Iq_max, Uq_max);
@@ -125,11 +126,18 @@ void foc::setMode(int mode)
 {
     switch (mode) {
         case FOC_MODE_VEL:
-            speed_pid->setup(0.02, 0.00001, 0.2);
+            speed_pid->setup(0.05, 0.0001, 0.1);
             break;
         case FOC_MODE_POS:
-        case FOC_MODE_POS_FEED:
             speed_pid->setup(0.01, 0, 0);
+            position_pid->setup(9, 0, 0);
+            break;
+        case FOC_MODE_POS_FEED:
+        case FOC_MODE_POS_RATCHET:
+            speed_pid->setup(0.01, 0, 0);
+            position_pid->setup(15, 0, 0);
+            break;
+        default:
             break;
     }
 }
@@ -139,11 +147,6 @@ void foc::updateSensors()
 {
     angle->sensorUpdate();
     current->getPhaseCurrents();
-    // if (count++ > 100 ) {
-    //     count = 0;
-
-    //     printf("vel: %f,%f \n", angle->getElectricAngle(), angle->getVelocity());
-    // }
 }
 
 void foc::setTorque(float target_uq, float target_ud, float elec_angle)
@@ -207,10 +210,10 @@ void foc::setTargetPosition(float target)
 
     // float _ref_Iq
     // setTargetCurrent(_ref_Iq, 0.0f);
-    if (count++ > 100) {
-        count = 0;
-        printf("position: %f, %f\n", _cur_pos, _ref_vel);
-    }
+    // if (count++ > 100) {
+    //     count = 0;
+    //     printf("position: %f, %f\n", _cur_pos, _ref_vel);
+    // }
 }
 
 
@@ -220,6 +223,7 @@ void foc::setDebug(int mode, int id, float set)
         // /*0*/ torque_d_pid,
         /*1*/ speed_pid,
         /*2*/ position_pid,
+        /*3*/ position_pid,
     };
 
     if (mode < FOC_MODE_NUM) {

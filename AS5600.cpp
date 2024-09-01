@@ -15,8 +15,8 @@ AngleSensor::AngleSensor(uint8_t id, int dir, uint8_t poles)
       direction(dir),
       pole_pairs(poles)
 {
-    timestamp_now = timestamp_prev = micros();
-    round = round_prev = 0;
+    timestamp_now = timestamp_prev = 0;
+    round = 0;
     full_radian_cur = full_radian_prev = 0;
     radian_cur = radian_prev = 0;
 
@@ -48,13 +48,14 @@ void AngleSensor::init()
          _raw += getRawAngle();
     }
     initial_degree = _raw >> 7;
-
+    timestamp_now = timestamp_prev = micros();
     printf("as5600 initial degree = %d\n", initial_degree);
 }
 
 uint16_t AngleSensor::getRawAngle()
 {
-    byte readArray[2];
+    byte readArray[2] = {0};
+    static int32_t degree_prev = 0;
     wire->requestFrom(AS5600_ADDR, (uint8_t)2);
 
     for (int i = 0; i < 2; i++) {
@@ -63,6 +64,11 @@ uint16_t AngleSensor::getRawAngle()
     uint16_t raw_angle = ((readArray[0] << 8) | readArray[1]);
     uint16_t degree = (raw_angle * 360) >> 12;
 
+    if (fabs(degree - degree_prev) > 720) {
+        printf("invalid degree: %d, %f\n", id, degree);
+        degree = degree_prev;
+    }
+    degree_prev = degree;
     return degree;
 }
 /*

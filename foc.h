@@ -39,22 +39,23 @@ class foc {
         ~foc() = default;
 
         void initAndCalibrateSensor();
-        void setTorque(float Uq, float Ud, float elec_angle);
         void setTargetPosition(float target);
         void setTargetVelocity(float target);
         void setTargetCurrent(float target_iq, float target_id);
         void updateSensors();
         void setMaxTorqueForPosition(float cur) { position_pid->setMaxOutput(cur); }
 
-        float getTorqueMaxCurrent() { return Iq_max; }
-        float getRadian() { return angle->getFullRadian(); }
         void setMode(int mode);
         void setDebug(int mode, int id, float set);
 
+        float getTorqueMaxCurrent() { return Iq_max; }
+
     private:
+        uint8_t identifySection(float A, float B, float C);
+
         void clarkPark(float elec_angle);
         void invParkSvpwm(float Uq, float Ud, float elec_angle);
-        uint8_t identifySection(float A, float B, float C);
+        void setTorque(float Uq, float Ud, float elec_angle);
 
     private:
         uint8_t section; // identify stator section number
@@ -77,7 +78,7 @@ class foc {
         // float Ua;
         // float Ub;
         // float Uc;
-        float Udc; // supply voltage. for example: 12.6v ==> 126
+        int Udc; // supply voltage. for example: 12.6v ==> 126
 
         float U_alpha;
         float U_beta;

@@ -10,10 +10,19 @@
 #include "AS5600.h"
 #include "foc.h"
 
-static foc *foc_list[MOTOR_NUMB];
+static bldc         *motor_list[MOTOR_NUMB];
+static AngleSensor  *angle_list[MOTOR_NUMB];
+static CurrSense    *current_list[MOTOR_NUMB];
+static foc          *foc_list[MOTOR_NUMB];
+static float ref_param[MOTOR_NUMB];
+
 static int motor_id;
 static int run_mode;
 static float motor_target = 0.0f;
+static int count = 0;
+
+static float radian_prev = 0;
+static float ratchet_target = 0;
 
 void serialReceiveUserCommand()
 {
@@ -76,13 +85,24 @@ void serialReceiveUserCommand()
 // static AngleSensor * angle_list[2];
 static void create_motor_controller(int id)
 {
-    bldc *_motor = new bldc(id, 12);
+    bldc *_motor        = new bldc(id, 12);
+    AngleSensor *_angle = new AngleSensor(id, 1, 7);
     CurrSense *_current = new CurrSense(id);
-    AngleSensor *_angel = new AngleSensor(id, 1, 7);
+    foc *_foc           = new foc(_motor, _current, _angle);
 
-    foc_list[id] = new foc(_motor, _current, _angel);
-   
-    foc_list[id]->initAndCalibrateSensor();
+    motor_list[id] = _motor;
+    current_list[id] = _current;
+    angle_list[id] = _angle;
+    foc_list[id] = _foc;
+
+    // motor_list[id] = new bldc(id, 12);
+    // current_list[id] = new CurrSense(id);
+    // angle_list[id] = new AngleSensor(id, 1, 7);
+
+    // foc_list[id] = new foc(_motor, _current, _angel);
+
+    _foc->initAndCalibrateSensor();
+    _foc->updateSensors();
 }
 
 void setup()
@@ -95,45 +115,65 @@ void setup()
     create_motor_controller(MOTOR_ID_1);
 
     run_mode = FOC_MODE_VEL;
-    motor_id = MOTOR_ID_1;
+    motor_id = MOTOR_ID_0;
 }
 
 void loop()
 {
     // unsigned long timestamp_prev = micros();
+    // float _pos0, _pos1;
     serialReceiveUserCommand();
 
     for (int i = 0; i < MOTOR_NUMB; i++) {
-        foc *_foc = foc_list[i];
-        _foc->updateSensors();
-
-        // if (i == MOTOR_ID_0) continue;
-        switch (run_mode) {
-            // case FOC_PID_MODE_ID:
-            //     _foc->setTargetCurrent(0, motor_target[i]);
-            //     break;
-
-            case FOC_MODE_VEL:
-                _foc->setTargetVelocity(motor_target);
-                break;
-
-            case FOC_MODE_POS:
-                _foc->setTargetPosition(motor_target);
-                break;
-
-            case FOC_MODE_POS_FEED: {
-                float _pos0 = foc_list[MOTOR_ID_0]->getRadian();
-                float _pos1 = foc_list[MOTOR_ID_1]->getRadian();
-                foc_list[MOTOR_ID_0]->setTargetPosition((_pos1-_pos0)*1.5);
-                foc_list[MOTOR_ID_1]->setTargetPosition((_pos0-_pos1)*1.5);
-                break;
-            }
-            // default : break;
-            default :
-                printf("unsupport run mode : %d\n", run_mode);
-                break;
-        }
+        foc_list[i]->updateSensors();
+        ref_param[i] = angle_list[i]->getFullRadian();
     }
+
+    // if (i == MOTOR_ID_0) continue;
+    switch (run_mode) {
+        // case FOC_PID_MODE_ID:
+        //     _foc->setTargetCurrent(0, motor_target[i]);
+        //     break;
+
+        case FOC_MODE_VEL:
+            for (int i = 0; i < MOTOR_NUMB; i++) {
+                foc_list[i]->setTargetVelocity(motor_target);
+                ref_param[i] = angle_list[i]->getVelocity();
+            }
+            break;
+
+        case FOC_MODE_POS:
+            for (int i = 0; i < MOTOR_NUMB; i++) {
+                foc_list[i]->setTargetPosition(motor_target);
+            }
+            break;
+
+        case FOC_MODE_POS_FEED:
+            foc_list[MOTOR_ID_0]->setTargetPosition(ref_param[MOTOR_ID_1]);
+            foc_list[MOTOR_ID_1]->setTargetPosition(ref_param[MOTOR_ID_0]);
+            break;
+
+        case FOC_MODE_POS_RATCHET: {
+            float delat_angle = ref_param[MOTOR_ID_0] - radian_prev;
+            if (delat_angle > _PI / 3) {
+                ratchet_target += delat_angle;
+                radian_prev = ref_param[MOTOR_ID_0];
+            }
+            else if (ref_param[MOTOR_ID_0] < radian_prev) {
+                radian_prev = ref_param[MOTOR_ID_0];
+            }
+            foc_list[MOTOR_ID_1]->setTargetPosition(ratchet_target);
+            break;
+        }
+        default :
+            printf("unsupport run mode : %d\n", run_mode);
+            break;
+    }
+
+    // if (count++ > 100) {
+    //     count = 0;
+    //     printf("pos: %f, %f\n", ref_param[0], ref_param[1]);
+    // }
     // unsigned long timestamp_now = micros();
     // printf("the loop consume(us): %d\n", timestamp_now - timestamp_prev);
 

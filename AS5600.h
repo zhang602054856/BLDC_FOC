@@ -33,7 +33,7 @@ class AngleSensor
     TwoWire* wire;
     LowPassFilter *velocity; // rad/s
     LowPassFilter *position;
-    // int16_t degree_angle;
+
     float radian_cur;
     float radian_prev;
 
@@ -41,10 +41,10 @@ class AngleSensor
     float full_radian_prev;
     float velocity_rad;
 
-    int16_t initial_degree;
+    int32_t initial_degree;
+    int32_t round;
 
     unsigned long timestamp_prev;
     unsigned long timestamp_now;
-    int32_t round;
-    int32_t round_prev;
+    // int32_t round_prev;
 };

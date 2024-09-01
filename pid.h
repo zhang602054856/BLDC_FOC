@@ -8,6 +8,7 @@ enum {
     FOC_MODE_VEL,
     FOC_MODE_POS,
     FOC_MODE_POS_FEED,
+    FOC_MODE_POS_RATCHET,
     FOC_MODE_NUM,
 } FOC_MODE;
 
@@ -24,6 +25,7 @@ class pid {
     pid(const char *name,
         float P, float I, float D,
         float i_factor, float max_in, float max_out);
+
     ~pid() = default;
 
     void setup(float P, float I, float D);

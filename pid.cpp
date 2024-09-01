@@ -19,7 +19,8 @@ pid::pid(const char *name, float P, float I, float D,
     deviation_prev = 0;
     pid_out = 0;
 
-    printf("%s, P=%f, I=%f, D=%f, max=[%.4f=>%.4f]\n", name, P, I, D, max_in, max_out);
+    // timestamp_prev = micros();
+    printf("%s, P=%f, I=%f, D=%f, max [%.4f, %.4f]\n", name, P, I, D, max_in, max_out);
 }
 
 void pid::setup(float P, float I, float D)
@@ -41,7 +42,6 @@ float pid::process(float target, float current)
     }
     else {
         float _target = _constrain(target, -in_max, in_max);
-
         deviation = _target - current;
 
         if (fabs(deviation) <= in_max * ki_factor) {
@@ -56,13 +56,9 @@ float pid::process(float target, float current)
         float I = deviation_sum;
         float D = kd * (deviation - deviation_prev);
 
-        pid_out = _constrain((P + I + D), -out_max, out_max);
+        pid_out = _constrain(P + I + D, -out_max, out_max);
 
         deviation_prev = deviation;
-        // if ((strcmp(id, "position") == 0) && count++ > 100 ) {
-        //     count = 0;
-        //     printf("pid: %f, %f, %f, %f\n", P, I, D, pid_out);
-        // }
     }
 
     return pid_out;

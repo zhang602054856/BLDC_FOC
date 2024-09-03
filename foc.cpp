@@ -90,7 +90,6 @@ foc::foc(bldc *mot, CurrSense* cur, AngleSensor* ang)
     Udc = mot->getMaxPower();
     Uq_max = _1_SQRT3 * Udc;
 
-    // kp=0.2, i=0.0001 , d=150
     // spring affect: p=0.01, i=0, d=0.9
     // position_pid = new pid("position", 0.4, 0, 160, 1, 200, Iq_max);
     position_pid = new pid("position", 9, 0, 0, 1, 1024, MAX_VEL_FOR_POS);

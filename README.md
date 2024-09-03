@@ -5,5 +5,5 @@ mode=<n> set foc running mode
 >> n = 3 : postion ratchet mode, Motor0 as input, Motor1 runs like a ratchet;  
 
 target=<val> set the target value for running mode;  
->> speed mode, val = [-100, 100] rad/s;
+>> speed mode, val = [-100, 100] rad/s;  
 >> position mode, val = [-1024, 1024] radian;
